@@ -999,7 +999,6 @@ mod tests {
             user_header: SrgbaTuple::default(),
             user_text: SrgbaTuple::default(),
             ai_text: SrgbaTuple::default(),
-            dim_fg: SrgbaTuple::default(),
             selection_fg: SrgbaTuple::default(),
             selection_bg: SrgbaTuple::default(),
         };
