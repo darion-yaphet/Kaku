@@ -87,17 +87,8 @@ fn delete_lines_scrolls_content_up() {
     // Move cursor to row 1, delete 1 line
     term.cup(0, 1);
     term.delete_lines(1);
-    // Rows 1-3 should shift; at least rows 1 and 2 are dirty
-    let dirty: Vec<usize> = {
-        let mut v = vec![];
-        term.screen().for_each_phys_line(|i, line| {
-            if line.changed_since(seqno) {
-                v.push(i);
-            }
-        });
-        v
-    };
-    assert!(!dirty.is_empty(), "delete_lines should dirty at least one row");
+    assert_visible_contents(&term, file!(), line!(), &["line0", "line2", "line3", ""]);
+    term.assert_dirty_lines(seqno, &[1, 2, 3], Some("delete_lines shifts lower rows"));
 }
 
 // ─── Text attributes (SGR) ────────────────────────────────────────────────────
@@ -137,13 +128,18 @@ fn scroll_region_limits_cursor_vertical_movement() {
     let mut term = TestTerm::new(6, 10, 0);
     // Set scroll region rows 2-4 (1-based)
     term.set_scroll_region(1, 3); // 0-based: rows 1 to 3
-    // Move cursor inside the region to the last row, then print a newline –
-    // the cursor should stay within the region (scroll, not move beyond).
+                                  // Move cursor inside the region to the last row, then print a newline –
+                                  // the cursor should stay within the region (scroll, not move beyond).
     term.cup(0, 3);
     term.assert_cursor_pos(0, 3, Some("cursor at bottom of scroll region"), None);
     term.print("\n"); // newline at the bottom of the region triggers scroll
-    // After scrolling, cursor remains at row 3 (the bottom of the region)
-    term.assert_cursor_pos(0, 3, Some("cursor stays at region bottom after scroll"), None);
+                      // After scrolling, cursor remains at row 3 (the bottom of the region)
+    term.assert_cursor_pos(
+        0,
+        3,
+        Some("cursor stays at region bottom after scroll"),
+        None,
+    );
 }
 
 // ─── Tab stops ────────────────────────────────────────────────────────────────

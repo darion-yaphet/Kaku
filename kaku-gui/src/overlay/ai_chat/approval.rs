@@ -906,7 +906,9 @@ mod tests {
 
     #[test]
     fn chained_safe_commands_no_approval() {
-        assert!(!shell_command_requires_approval("cat Cargo.toml && echo done"));
+        assert!(!shell_command_requires_approval(
+            "cat Cargo.toml && echo done"
+        ));
     }
 
     // ─── approval_summary ────────────────────────────────────────────────────
@@ -914,10 +916,18 @@ mod tests {
     #[test]
     fn read_only_tools_return_none() {
         let empty = serde_json::json!({});
-        for tool in &["fs_read", "fs_list", "fs_search", "pwd", "shell_poll", "memory_read"] {
+        for tool in &[
+            "fs_read",
+            "fs_list",
+            "fs_search",
+            "pwd",
+            "shell_poll",
+            "memory_read",
+        ] {
             assert!(
                 approval_summary(tool, &empty).is_none(),
-                "{tool} should not require approval"
+                "{} should not require approval",
+                tool
             );
         }
     }
@@ -1000,8 +1010,7 @@ mod tests {
             selected_text: String::new(),
             colors: palette,
             last_exit_code: exit_code,
-            last_command_output: output
-                .map(|v| v.iter().map(|s| s.to_string()).collect()),
+            last_command_output: output.map(|v| v.iter().map(|s| s.to_string()).collect()),
         }
     }
 
@@ -1027,7 +1036,15 @@ mod tests {
         let msg = build_visible_snapshot_message(&ctx).expect("should produce message");
         let body = content(&msg);
         assert!(body.contains("TERM|"), "each line must be prefixed TERM|");
-        assert!(body.contains("untrusted"), "snapshot must be labelled untrusted");
+        let term_lines: Vec<&str> = body.lines().filter(|l| l.starts_with("TERM| ")).collect();
+        assert_eq!(
+            term_lines,
+            vec!["TERM| $ cargo build", "TERM| error: something"]
+        );
+        assert!(
+            body.contains("untrusted"),
+            "snapshot must be labelled untrusted"
+        );
         assert!(body.contains("End of terminal snapshot"));
     }
 
@@ -1063,7 +1080,14 @@ mod tests {
         let lines: Vec<&str> = (0..30).map(|_| "line").collect();
         let ctx = test_ctx(&lines, None, None);
         let msg = build_visible_snapshot_message(&ctx).expect("should produce message");
-        let count = content(&msg).lines().filter(|l| l.starts_with("TERM|")).count();
-        assert!(count <= 20, "snapshot must be capped at 20 lines, got {count}");
+        let count = content(&msg)
+            .lines()
+            .filter(|l| l.starts_with("TERM|"))
+            .count();
+        assert!(
+            count <= 20,
+            "snapshot must be capped at 20 lines, got {}",
+            count
+        );
     }
 }
