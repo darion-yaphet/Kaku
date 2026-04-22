@@ -781,7 +781,7 @@ local ai_fix_api_base_url = "https://api.vivgrid.com/v1"
 local ai_fix_api_key = nil
 local ai_fix_model = "DeepSeek-V3.2"
 local ai_fix_custom_headers = {}
-local ai_fix_timeout_secs = 12
+local ai_fix_timeout_secs = 30
 local ai_fix_debug_enabled = false
 local ai_fix_state_by_pane = {}
 local ai_fix_poll_interval_secs = 0.2
@@ -809,6 +809,12 @@ local function refresh_ai_fix_settings()
   ai_fix_api_key = read_ai_setting("api_key", ai_fix_api_key)
   ai_fix_model = read_ai_setting("model", ai_fix_model)
   ai_fix_custom_headers = read_ai_custom_headers("custom_headers")
+  local timeout_str = read_ai_setting("timeout_secs", tostring(ai_fix_timeout_secs))
+  local timeout_num = tonumber(timeout_str)
+  if timeout_num and timeout_num > 0 then
+    ai_fix_timeout_secs = timeout_num
+    ai_fix_poll_deadline_secs = ai_fix_timeout_secs + 4
+  end
 end
 
 local function detect_git_branch(path)
@@ -1303,7 +1309,9 @@ local function inject_ai_status(pane, message)
   end
 
   local summary = normalize_ai_summary(message or "", "Checking this error now.")
-  local line = "\27[38;5;141m╰─ Kaku Assistant\27[0m  \27[38;5;244m" .. summary .. "\27[0m"
+  local is_light = resolve_appearance_color_scheme() == 'Kaku Light'
+  local label_color = is_light and "\27[38;2;32;94;166m" or "\27[38;5;141m"
+  local line = label_color .. "╰─ Kaku Assistant\27[0m  \27[38;5;244m" .. summary .. "\27[0m"
   local output = "\r\n" .. line .. "\r\n\r\n"
   pcall(function()
     pane:inject_output(output)
@@ -3401,6 +3409,16 @@ local function build_managed_window_frame(scheme)
   frame.inactive_titlebar_bg = colors.inactive_titlebar_bg
   frame.active_titlebar_fg = colors.active_titlebar_fg
   frame.inactive_titlebar_fg = colors.inactive_titlebar_fg
+  frame.active_titlebar_border_bottom = colors.active_titlebar_border_bottom
+  frame.inactive_titlebar_border_bottom = colors.inactive_titlebar_border_bottom
+  frame.border_left_width = colors.border_left_width
+  frame.border_right_width = colors.border_right_width
+  frame.border_top_height = colors.border_top_height
+  frame.border_bottom_height = colors.border_bottom_height
+  frame.border_left_color = colors.border_left_color
+  frame.border_right_color = colors.border_right_color
+  frame.border_top_color = colors.border_top_color
+  frame.border_bottom_color = colors.border_bottom_color
   return frame
 end
 
@@ -3414,6 +3432,16 @@ local function window_frame_matches_theme(frame, scheme)
     and frame.inactive_titlebar_bg == colors.inactive_titlebar_bg
     and frame.active_titlebar_fg == colors.active_titlebar_fg
     and frame.inactive_titlebar_fg == colors.inactive_titlebar_fg
+    and frame.active_titlebar_border_bottom == colors.active_titlebar_border_bottom
+    and frame.inactive_titlebar_border_bottom == colors.inactive_titlebar_border_bottom
+    and frame.border_left_width == colors.border_left_width
+    and frame.border_right_width == colors.border_right_width
+    and frame.border_top_height == colors.border_top_height
+    and frame.border_bottom_height == colors.border_bottom_height
+    and frame.border_left_color == colors.border_left_color
+    and frame.border_right_color == colors.border_right_color
+    and frame.border_top_color == colors.border_top_color
+    and frame.border_bottom_color == colors.border_bottom_color
 end
 
 -- Dynamically switch font weight when theme changes
@@ -3732,10 +3760,20 @@ get_window_frame_colors = function(scheme)
   scheme = resolve_kaku_color_scheme(scheme)
   if scheme == 'Kaku Light' then
     return {
-      active_titlebar_bg = '#FFFCF0',
-      inactive_titlebar_bg = '#FFFCF0',
+      active_titlebar_bg = '#F6F1E3',
+      inactive_titlebar_bg = '#F1EBDD',
       active_titlebar_fg = '#100F0F',
       inactive_titlebar_fg = '#575653',
+      active_titlebar_border_bottom = '#D8CEB8',
+      inactive_titlebar_border_bottom = '#E3DAC8',
+      border_left_width = 1,
+      border_right_width = 1,
+      border_top_height = 1,
+      border_bottom_height = 1,
+      border_left_color = '#DDD3BF',
+      border_right_color = '#DDD3BF',
+      border_top_color = '#DDD3BF',
+      border_bottom_color = '#DDD3BF',
     }
   else
     return {
@@ -3743,6 +3781,16 @@ get_window_frame_colors = function(scheme)
       inactive_titlebar_bg = KAKU.BLACK,
       active_titlebar_fg = KAKU.WHITE,
       inactive_titlebar_fg = KAKU.GRAY,
+      active_titlebar_border_bottom = KAKU.BLACK,
+      inactive_titlebar_border_bottom = KAKU.BLACK,
+      border_left_width = 0,
+      border_right_width = 0,
+      border_top_height = 0,
+      border_bottom_height = 0,
+      border_left_color = nil,
+      border_right_color = nil,
+      border_top_color = nil,
+      border_bottom_color = nil,
     }
   end
 end
@@ -3756,6 +3804,16 @@ if not user_has_custom_window_frame then
     inactive_titlebar_bg = window_frame_colors.inactive_titlebar_bg,
     active_titlebar_fg = window_frame_colors.active_titlebar_fg,
     inactive_titlebar_fg = window_frame_colors.inactive_titlebar_fg,
+    active_titlebar_border_bottom = window_frame_colors.active_titlebar_border_bottom,
+    inactive_titlebar_border_bottom = window_frame_colors.inactive_titlebar_border_bottom,
+    border_left_width = window_frame_colors.border_left_width,
+    border_right_width = window_frame_colors.border_right_width,
+    border_top_height = window_frame_colors.border_top_height,
+    border_bottom_height = window_frame_colors.border_bottom_height,
+    border_left_color = window_frame_colors.border_left_color,
+    border_right_color = window_frame_colors.border_right_color,
+    border_top_color = window_frame_colors.border_top_color,
+    border_bottom_color = window_frame_colors.border_bottom_color,
   }
 end
 
