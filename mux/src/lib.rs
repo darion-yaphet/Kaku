@@ -160,7 +160,7 @@ pub struct Mux {
     default_domain: RwLock<Option<Arc<dyn Domain>>>,
     domains: RwLock<HashMap<DomainId, Arc<dyn Domain>>>,
     domains_by_name: RwLock<HashMap<String, Arc<dyn Domain>>>,
-    subscribers: RwLock<HashMap<usize, Arc<dyn Fn(MuxNotification) -> bool + Send + Sync>>>,
+    subscribers: RwLock<HashMap<usize, Arc<dyn Fn(&MuxNotification) -> bool + Send + Sync>>>,
     banner: RwLock<Option<String>>,
     clients: RwLock<HashMap<ClientId, ClientInfo>>,
     identity: RwLock<Option<Arc<ClientId>>>,
@@ -1063,7 +1063,7 @@ impl Mux {
 
     pub fn subscribe<F>(&self, subscriber: F)
     where
-        F: Fn(MuxNotification) -> bool + 'static + Send + Sync,
+        F: Fn(&MuxNotification) -> bool + 'static + Send + Sync,
     {
         let sub_id = SUB_ID.fetch_add(1, Ordering::Relaxed);
         self.subscribers
@@ -1073,7 +1073,7 @@ impl Mux {
 
     pub fn notify(&self, notification: MuxNotification) {
         // Collect subscribers while holding the lock briefly
-        let subscribers: Vec<(usize, Arc<dyn Fn(MuxNotification) -> bool + Send + Sync>)> = self
+        let subscribers: Vec<(usize, Arc<dyn Fn(&MuxNotification) -> bool + Send + Sync>)> = self
             .subscribers
             .read()
             .iter()
@@ -1084,7 +1084,7 @@ impl Mux {
         let to_remove: Vec<usize> = subscribers
             .into_iter()
             .filter_map(|(sub_id, notify)| {
-                if !notify(notification.clone()) {
+                if !notify(&notification) {
                     Some(sub_id)
                 } else {
                     None
