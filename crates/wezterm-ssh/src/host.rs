@@ -146,7 +146,7 @@ impl crate::sessioninner::SessionInner {
                         for b in fingerprint {
                             write!(&mut res, ":{:02x}", *b).ok();
                         }
-                        String::from_utf8(res).expect("SHA1 hex fingerprint is always valid UTF-8")
+                        String::from_utf8(res).unwrap()
                     })
                 })
                 .ok_or_else(|| anyhow!("failed to get host fingerprint"))?;
