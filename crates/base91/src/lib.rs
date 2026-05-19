@@ -137,8 +137,10 @@ pub fn encode(buf: &[u8]) -> Vec<u8> {
     let mut result = Vec::with_capacity((buf.len() * 123) / 100);
     {
         let mut writer = Base91Encoder::new(&mut result);
-        writer.write_all(buf).unwrap();
-        writer.flush().unwrap();
+        writer
+            .write_all(buf)
+            .expect("Vec<u8> writes are infallible");
+        writer.flush().expect("Vec<u8> flushes are infallible");
     }
     result
 }
@@ -222,8 +224,10 @@ pub fn decode(buf: &[u8]) -> Vec<u8> {
     let mut result = Vec::with_capacity(buf.len());
     {
         let mut writer = Base91Decoder::new(&mut result);
-        writer.write_all(buf).unwrap();
-        writer.flush().unwrap();
+        writer
+            .write_all(buf)
+            .expect("Vec<u8> writes are infallible");
+        writer.flush().expect("Vec<u8> flushes are infallible");
     }
     result
 }
