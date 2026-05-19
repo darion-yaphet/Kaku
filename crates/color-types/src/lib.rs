@@ -411,16 +411,16 @@ fn iter_rgb_txt(mut func: impl FnMut(&str, SrgbaTuple) -> bool) {
 
     for line in RGB_TXT.lines() {
         let mut fields = line.split_ascii_whitespace();
-        let red = fields.next().unwrap();
-        let green = fields.next().unwrap();
-        let blue = fields.next().unwrap();
+        let red = fields.next().expect("rgb.txt: missing red field");
+        let green = fields.next().expect("rgb.txt: missing green field");
+        let blue = fields.next().expect("rgb.txt: missing blue field");
         let name = fields.collect::<Vec<&str>>().join(" ");
 
         let name = name.to_ascii_lowercase();
         let color = SrgbaTuple(
-            red.parse::<f32>().unwrap() / 255.,
-            green.parse::<f32>().unwrap() / 255.,
-            blue.parse::<f32>().unwrap() / 255.,
+            red.parse::<f32>().expect("rgb.txt: red is always an integer") / 255.,
+            green.parse::<f32>().expect("rgb.txt: green is always an integer") / 255.,
+            blue.parse::<f32>().expect("rgb.txt: blue is always an integer") / 255.,
             1.0,
         );
 
