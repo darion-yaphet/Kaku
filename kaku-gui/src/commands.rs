@@ -254,6 +254,7 @@ impl CommandDef {
             ShowTabNavigator,
             // Help menu
             ShowDebugOverlay,
+            OpenUri("https://kaku.fun/".to_string()),
             OpenUri("https://github.com/tw93/Kaku".to_string()),
             OpenUri("https://github.com/tw93/Kaku/issues/".to_string()),
         ];
@@ -2227,6 +2228,14 @@ pub fn derive_command_from_key_assignment(action: &KeyAssignment) -> Option<Comm
             icon: None,
         },
         OpenUri(uri) => match uri.as_ref() {
+            "https://kaku.fun/" => CommandDef {
+                brief: "Kaku Help".into(),
+                doc: "Open the Kaku website in your browser".into(),
+                keys: vec![],
+                args: &[],
+                menubar: &["Help"],
+                icon: None,
+            },
             "https://github.com/tw93/Kaku" => CommandDef {
                 brief: "Star on GitHub".into(),
                 doc: "Star Kaku on GitHub".into(),
