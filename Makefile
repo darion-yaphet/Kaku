@@ -14,6 +14,11 @@ check:
 	cargo check --locked -p wezterm-cell
 	cargo check --locked -p wezterm-surface
 	cargo check --locked -p wezterm-ssh
+	@if grep -R -nE "write!\(.*\)\.ok\(\)|write_all\(.*\)\.ok\(\)|write_fmt\(.*\)\.ok\(\)|\.flush\(\)\.ok\(\)" --include='*.rs' term kaku kaku-gui mux; then \
+		echo "ERROR: write/flush must not silently ignore errors in core crates"; \
+		exit 1; \
+	fi
+	./scripts/check_logs.sh
 	./scripts/check_prompts.sh
 
 app:
