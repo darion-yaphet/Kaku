@@ -844,7 +844,7 @@ local function is_shell_foreground(pane)
   end
 
   -- Normalize full executable paths (e.g., /bin/zsh) and login shell names (e.g., -zsh).
-  local name = basename(proc:lower()):gsub("^%-", "")
+  local name = (basename(proc:lower()) or proc:lower()):gsub("^%-", "")
   local shells = { zsh = true, bash = true, fish = true, sh = true, dash = true, ksh = true, tcsh = true, csh = true }
   return shells[name] == true
 end
@@ -2661,6 +2661,47 @@ local function pane_foreground_process_info(pane)
   return info
 end
 
+function kaku_foreground_process_title(pane)
+  if not pane then
+    return nil
+  end
+
+  local function normalized_process_basename(proc)
+    if type(proc) ~= "string" or proc == "" then
+      return ""
+    end
+    return (basename(proc:lower()) or proc:lower()):gsub("^%-", "")
+  end
+
+  local function is_shell_process_name(proc)
+    local name = normalized_process_basename(proc)
+    local shells = { zsh = true, bash = true, fish = true, sh = true, dash = true, ksh = true, tcsh = true, csh = true }
+    return shells[name] == true
+  end
+
+  local info = pane_foreground_process_info(pane)
+  if info and type(info.argv) == "table" and #info.argv > 0 then
+    local command = normalized_process_basename(tostring(info.argv[1] or ""))
+    if command ~= "" and command ~= "ssh" and not is_shell_process_name(command) then
+      if (command == "npm" or command == "pnpm" or command == "yarn" or command == "bun") and #info.argv >= 2 then
+        local parts = { command }
+        for i = 2, math.min(#info.argv, 3) do
+          parts[#parts + 1] = tostring(info.argv[i])
+        end
+        return table.concat(parts, " ")
+      end
+      return command
+    end
+  end
+
+  local proc_name = pane_foreground_process_name(pane)
+  local command = normalized_process_basename(proc_name)
+  if command == "" or command == "ssh" or is_shell_process_name(command) then
+    return nil
+  end
+  return command
+end
+
 local function pane_cwd_value(pane)
   if not pane then
     return nil
@@ -3227,6 +3268,12 @@ local function tab_display_title(tab, effective_config)
   local active_pane = tab and tab.active_pane or nil
   local text = tab and tab.tab_title or ''
 
+  if text == '' and active_pane then
+    text = resolve_remote_target_from_pane(active_pane) or ''
+  end
+  if text == '' and active_pane then
+    text = kaku_foreground_process_title(active_pane) or ''
+  end
   if text == '' and tab then
     local parent, current = tab_path_parts(tab)
     local basename_only = effective_config and effective_config.tab_title_show_basename_only
@@ -3236,9 +3283,6 @@ local function tab_display_title(tab, effective_config)
     end
   end
 
-  if text == '' and active_pane then
-    text = resolve_remote_target_from_pane(active_pane) or ''
-  end
   if text == '' and active_pane then
     text = active_pane.title or ''
   end
@@ -3312,8 +3356,13 @@ wezterm.on('format-tab-title', function(tab, tabs, panes, effective_config, hove
       if not basename_only and parent ~= '' and current ~= '' then
         seg_text = parent .. '/' .. current
       end
+      local remote_target = resolve_remote_target_from_pane(p)
+      local process_title = kaku_foreground_process_title(p)
+      if process_title then
+        seg_text = process_title
+      end
       if seg_text == '' then
-        seg_text = resolve_remote_target_from_pane(p) or p.title or '?'
+        seg_text = remote_target or p.title or '?'
       end
       local idx = seg_index[seg_text]
       if idx then

@@ -187,7 +187,10 @@ config.split_pane_inherit_working_directory = true -- new splits
 
 **Tab bar**
 
-Hidden when only one tab is open. Change position or show only the current directory name:
+Hidden when only one tab is open. Kaku shows stateful foreground processes
+such as `claude`, `vim`, `lazygit`, or `npm run dev` in tab titles; idle shell
+tabs fall back to the current directory. Change position or show only the
+current directory name:
 
 ```lua
 config.tab_bar_at_bottom = false        -- move to top
