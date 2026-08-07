@@ -120,6 +120,18 @@ impl AssistantConfig {
             .unwrap_or(false)
     }
 
+    /// Whether auth is ready for a request on every AI surface (Cmd+L, `#`, `k`).
+    ///
+    /// Codex / Copilot use external login state; API-key providers need a
+    /// non-empty key. Shared so `#` does not gate earlier than overlay/`k`.
+    pub fn auth_ready(&self) -> bool {
+        Self::auth_is_ready(&self.auth_type, &self.api_key)
+    }
+
+    pub fn auth_is_ready(auth_type: &str, api_key: &str) -> bool {
+        matches!(auth_type, "codex" | "copilot") || !api_key.trim().is_empty()
+    }
+
     pub fn load() -> Result<Self> {
         let path = assistant_toml_path()?;
         let raw = std::fs::read_to_string(&path)
@@ -2323,6 +2335,16 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::atomic::AtomicBool;
     use std::sync::mpsc;
+
+    #[test]
+    fn auth_ready_matrix_matches_inline_and_overlay_gates() {
+        assert!(AssistantConfig::auth_is_ready("codex", ""));
+        assert!(AssistantConfig::auth_is_ready("copilot", ""));
+        assert!(AssistantConfig::auth_is_ready("api_key", "token"));
+        assert!(!AssistantConfig::auth_is_ready("api_key", ""));
+        assert!(!AssistantConfig::auth_is_ready("api_key", "   "));
+        assert!(!AssistantConfig::auth_is_ready("custom", ""));
+    }
 
     fn collect_segments(segs: Vec<ThinkSegment>) -> (String, String) {
         let mut tokens = String::new();

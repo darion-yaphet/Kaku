@@ -220,13 +220,26 @@ pub(crate) fn build_environment_message(input: &EnvironmentInputs<'_>) -> ApiMes
 }
 
 /// Backwards-compat shim used by `cli_chat`. Equivalent to
-/// `build_environment_message(&EnvironmentInputs { cwd, include_project_hints: true, .. })`.
-pub(crate) fn build_cli_environment_message(cwd: &str) -> ApiMessage {
+/// `build_environment_message(&EnvironmentInputs { cwd, remote_host, include_project_hints: true, .. })`.
+pub(crate) fn build_cli_environment_message(cwd: &str, remote_host: Option<&str>) -> ApiMessage {
     build_environment_message(&EnvironmentInputs {
         cwd,
+        remote_host,
         include_project_hints: true,
         ..Default::default()
     })
+}
+
+/// Whether local shell/file tools may be advertised for this turn.
+///
+/// Shared by Cmd+L overlay and the `k` CLI Engine so a remote pane cwd
+/// disables tools on every surface the same way.
+pub(crate) fn local_tools_allowed(
+    tools_enabled: bool,
+    remote_host: Option<&str>,
+    transient: bool,
+) -> bool {
+    tools_enabled && !transient && remote_host.is_none()
 }
 
 fn macos_timezone() -> Option<String> {
@@ -948,6 +961,9 @@ pub struct Engine {
     pub client: AiClient,
     pub model: String,
     pub cwd: String,
+    /// Remote host owning `cwd` when the session is over ssh (OSC 7).
+    /// Local tools are disabled when this is `Some`, matching the overlay.
+    pub remote_host: Option<String>,
     cancel_flag: Arc<AtomicBool>,
 }
 
@@ -963,6 +979,7 @@ impl Engine {
             client,
             model,
             cwd,
+            remote_host: None,
             cancel_flag: Arc::new(AtomicBool::new(false)),
         })
     }
@@ -982,8 +999,15 @@ impl Engine {
             client,
             model,
             cwd,
+            remote_host: None,
             cancel_flag: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    /// Record a remote host from an OSC 7 cwd URL so tools match the overlay.
+    pub fn with_remote_host(mut self, remote_host: Option<String>) -> Self {
+        self.remote_host = remote_host;
+        self
     }
 
     /// Submit a user turn. Returns a receiver for streaming events.
@@ -1000,7 +1024,11 @@ impl Engine {
         let _ = ai_conversations::save_active_messages(&self.active_id, &self.messages);
 
         let api_messages = self.build_api_messages();
-        let tools: Vec<serde_json::Value> = if self.client.tools_enabled() {
+        let tools: Vec<serde_json::Value> = if local_tools_allowed(
+            self.client.tools_enabled(),
+            self.remote_host.as_deref(),
+            false,
+        ) {
             crate::ai_tools::all_tools(self.client.config())
                 .iter()
                 .map(crate::ai_tools::to_api_schema)
@@ -1086,7 +1114,10 @@ impl Engine {
     fn build_api_messages(&self) -> Vec<ApiMessage> {
         let mut out = Vec::new();
         out.push(ApiMessage::system(build_system_prompt()));
-        out.push(build_cli_environment_message(&self.cwd));
+        out.push(build_cli_environment_message(
+            &self.cwd,
+            self.remote_host.as_deref(),
+        ));
 
         let real: Vec<&PersistedMessage> = self
             .messages
@@ -1139,6 +1170,14 @@ impl Engine {
 mod tests {
     use super::*;
     use crate::ai_client::{ApiMode, AssistantConfig, ToolCall};
+
+    #[test]
+    fn local_tools_disabled_on_remote_host_and_transient_turns() {
+        assert!(local_tools_allowed(true, None, false));
+        assert!(!local_tools_allowed(true, Some("server"), false));
+        assert!(!local_tools_allowed(true, None, true));
+        assert!(!local_tools_allowed(false, None, false));
+    }
 
     #[test]
     fn unadvertised_tool_calls_are_outside_the_allowed_set() {
@@ -1243,6 +1282,7 @@ mod tests {
             client: test_client(),
             model: model.to_string(),
             cwd: "/tmp".to_string(),
+            remote_host: None,
             cancel_flag: Arc::new(AtomicBool::new(false)),
         }
     }

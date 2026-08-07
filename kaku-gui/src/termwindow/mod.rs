@@ -1460,18 +1460,26 @@ impl TermWindow {
             .contains(WindowState::FULL_SCREEN)
     }
 
-    /// Returns true when the currently focused pane has the AI chat overlay
-    /// active. Used by the resize path to temporarily shrink the bottom
-    /// padding so the chat box sits closer to the window / tab-bar edge.
-    fn has_ai_chat_overlay_on_active_pane(&self) -> bool {
-        let mux = mux::Mux::try_get();
-        let pane_id = mux
-            .and_then(|m| m.get_active_tab_for_window(self.mux_window_id))
-            .and_then(|tab| tab.get_active_pane().map(|p| p.pane_id()));
-        match pane_id {
-            Some(id) => self.ai_chat_overlay_panes.contains_key(&id),
-            None => false,
+    /// Returns true when any pane on the active tab has the AI chat overlay
+    /// open. Window padding is shared across splits, so the resize path must
+    /// shrink the bottom inset whenever an AI chat is visible in the layout —
+    /// not only when the focused pane owns it.
+    fn has_visible_ai_chat_overlay(&self) -> bool {
+        if self.ai_chat_overlay_panes.is_empty() {
+            return false;
         }
+        let Some(mux) = mux::Mux::try_get() else {
+            return false;
+        };
+        let Some(tab) = mux.get_active_tab_for_window(self.mux_window_id) else {
+            return false;
+        };
+        let tab_panes: Vec<PaneId> = tab
+            .iter_panes()
+            .into_iter()
+            .map(|p| p.pane.pane_id())
+            .collect();
+        ai_chat_overlay_visible_on_tab(self.ai_chat_overlay_panes.keys().copied(), &tab_panes)
     }
 
     /// Fullscreen should keep the historical V0.7.1 padding behavior.
@@ -2538,6 +2546,10 @@ impl TermWindow {
                     self.update_title_post_status();
                 }
                 MuxNotification::PaneRemoved(pane_id) => {
+                    // Cancel via the host-pane path so `ai_chat_overlay_panes`
+                    // stays in sync with `pane_state.overlay` (the HashMap is
+                    // keyed by host id, not the allocated overlay pane id).
+                    self.cancel_overlay_for_pane(pane_id);
                     // Clean up pane state and adjust global bell count if needed
                     if let Some(state) = self.pane_state.borrow_mut().remove(&pane_id) {
                         if state.has_unread_bell {
@@ -2618,14 +2630,22 @@ impl TermWindow {
     /// we can leave the mux with no windows but some panes
     /// and it won't believe that we are empty.
     fn clear_all_overlays(&mut self) {
-        let overlay_panes_to_cancel = self
+        // Per-pane overlays (including AI chat) are stored under the *host*
+        // pane id. Cancelling by the allocated overlay pane id skips both
+        // `pane_state.overlay` and `ai_chat_overlay_panes`.
+        let host_to_overlay: Vec<(PaneId, PaneId)> = self
             .pane_state
             .borrow()
             .iter()
-            .filter_map(|(_, state)| state.overlay.as_ref().map(|overlay| overlay.pane.pane_id()))
-            .collect::<Vec<_>>();
-
-        for pane_id in overlay_panes_to_cancel {
+            .filter_map(|(host_id, state)| {
+                state
+                    .overlay
+                    .as_ref()
+                    .map(|overlay| (*host_id, overlay.pane.pane_id()))
+            })
+            .collect();
+        let ai_hosts: Vec<PaneId> = self.ai_chat_overlay_panes.keys().copied().collect();
+        for pane_id in clear_all_overlay_host_ids(host_to_overlay, ai_hosts) {
             self.cancel_overlay_for_pane(pane_id);
         }
 
@@ -2651,6 +2671,7 @@ impl TermWindow {
             front_end().adjust_unread_bell_count(-unread_count);
         }
 
+        self.ai_chat_overlay_panes.clear();
         self.pane_state.borrow_mut().clear();
         self.tab_state.borrow_mut().clear();
     }
@@ -6614,6 +6635,49 @@ impl TermWindow {
     }
 }
 
+/// Host pane ids that own a per-pane overlay and/or an AI chat palette
+/// channel. Both books are keyed by the host pane id — never by the
+/// allocated overlay pane id from `start_overlay_pane`.
+fn per_pane_overlay_host_ids(
+    pane_hosts_with_overlay: impl IntoIterator<Item = PaneId>,
+    ai_chat_hosts: impl IntoIterator<Item = PaneId>,
+) -> Vec<PaneId> {
+    let mut hosts = Vec::new();
+    for id in pane_hosts_with_overlay {
+        if !hosts.contains(&id) {
+            hosts.push(id);
+        }
+    }
+    for id in ai_chat_hosts {
+        if !hosts.contains(&id) {
+            hosts.push(id);
+        }
+    }
+    hosts
+}
+
+/// Whether window-wide AI chat bottom padding should apply for the active tab.
+fn ai_chat_overlay_visible_on_tab(
+    ai_chat_hosts: impl IntoIterator<Item = PaneId>,
+    tab_pane_ids: &[PaneId],
+) -> bool {
+    ai_chat_hosts
+        .into_iter()
+        .any(|host| tab_pane_ids.contains(&host))
+}
+
+/// Collect host pane ids for `clear_all_overlays`.
+///
+/// `pane_state` entries map host id → overlay state. Passing the overlay's own
+/// `pane_id()` here is the regression that left `ai_chat_overlay_panes` orphans.
+fn clear_all_overlay_host_ids(
+    host_to_overlay_pane: impl IntoIterator<Item = (PaneId, PaneId)>,
+    ai_chat_hosts: impl IntoIterator<Item = PaneId>,
+) -> Vec<PaneId> {
+    let pane_hosts = host_to_overlay_pane.into_iter().map(|(host, _)| host);
+    per_pane_overlay_host_ids(pane_hosts, ai_chat_hosts)
+}
+
 impl Drop for TermWindow {
     fn drop(&mut self) {
         self.clear_all_overlays();
@@ -6629,13 +6693,52 @@ impl Drop for TermWindow {
 #[cfg(test)]
 mod tests {
     use super::{
-        bell_notification_message, FileLinkTarget, InputBroadcastMode, MouseCapture,
-        RenderableDimensions, TermWindow,
+        ai_chat_overlay_visible_on_tab, bell_notification_message, clear_all_overlay_host_ids,
+        FileLinkTarget, InputBroadcastMode, MouseCapture, RenderableDimensions, TermWindow,
     };
     use mux::pane::PaneId;
     use mux::tab::TabId;
     use std::path::PathBuf;
     use wezterm_term::StableRowIndex;
+
+    #[test]
+    fn clear_overlays_cancels_by_host_pane_id_not_overlay_id() {
+        let host = PaneId::new(1);
+        let overlay = PaneId::new(99);
+        // The production collector must use the host key from (host, overlay)
+        // pairs. Collecting only overlay ids is the old bug.
+        let hosts = clear_all_overlay_host_ids([(host, overlay)], [host]);
+        assert_eq!(hosts, vec![host]);
+        assert!(!hosts.contains(&overlay));
+        // Old bug: collect overlay.pane.pane_id() instead of the host key.
+        let old_bug = vec![overlay];
+        assert_ne!(hosts, old_bug);
+    }
+
+    #[test]
+    fn clear_overlays_includes_orphan_ai_chat_hosts() {
+        let host_with_overlay = PaneId::new(1);
+        let orphan_ai = PaneId::new(2);
+        let overlay = PaneId::new(99);
+        let hosts = clear_all_overlay_host_ids(
+            [(host_with_overlay, overlay)],
+            [host_with_overlay, orphan_ai],
+        );
+        assert_eq!(hosts, vec![host_with_overlay, orphan_ai]);
+    }
+
+    #[test]
+    fn ai_chat_padding_applies_for_any_host_on_active_tab() {
+        let host = PaneId::new(1);
+        let sibling = PaneId::new(2);
+        let other_tab = PaneId::new(3);
+        assert!(ai_chat_overlay_visible_on_tab(
+            [host],
+            &[sibling, host] // focused sibling still triggers padding
+        ));
+        assert!(!ai_chat_overlay_visible_on_tab([host], &[other_tab]));
+        assert!(!ai_chat_overlay_visible_on_tab([], &[host]));
+    }
 
     #[test]
     fn other_user_vars_never_trigger_reload() {

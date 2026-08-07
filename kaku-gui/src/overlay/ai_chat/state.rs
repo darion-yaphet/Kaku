@@ -1467,8 +1467,12 @@ impl App {
         // Tools execute on this machine; inside an ssh session the pane cwd
         // belongs to the remote host, so running them locally would target
         // wrong (same-named local) paths. Disable and let the prompt explain.
-        let remote = self.context.remote_host.is_some();
-        let tools: Vec<serde_json::Value> = if client.tools_enabled() && !transient && !remote {
+        // Predicate is shared with the `k` CLI Engine.
+        let tools: Vec<serde_json::Value> = if crate::ai_chat_engine::local_tools_allowed(
+            client.tools_enabled(),
+            self.context.remote_host.as_deref(),
+            transient,
+        ) {
             crate::ai_tools::all_tools(client.config())
                 .iter()
                 .map(crate::ai_tools::to_api_schema)

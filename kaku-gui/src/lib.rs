@@ -13,6 +13,7 @@
 pub mod ai_chat_engine;
 pub mod ai_client;
 pub mod ai_conversations;
+pub mod ai_cwd;
 pub mod ai_tools;
 pub mod cli_chat;
 #[doc(hidden)]

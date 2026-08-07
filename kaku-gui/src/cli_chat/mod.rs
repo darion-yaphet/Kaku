@@ -26,6 +26,23 @@ pub struct CliArgs {
     pub resume: Option<Option<String>>,
 }
 
+/// Resolve cwd and optional remote host for the CLI Engine.
+///
+/// When a wrapper exports `KAKU_OSC7_CWD` (OSC 7 `file://host/path`), parse it
+/// the same way as Cmd+L so local tools stay disabled on remote panes.
+fn resolve_cwd_and_remote() -> (String, Option<String>) {
+    let fallback = std::env::current_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if let Ok(url) = std::env::var("KAKU_OSC7_CWD") {
+        if let Some((path, remote)) = crate::ai_cwd::split_cwd_url_str(&url) {
+            let cwd = if path.is_empty() { fallback } else { path };
+            return (cwd, remote);
+        }
+    }
+    (fallback, None)
+}
+
 /// Main entry point for the `k` binary.
 pub fn run(args: CliArgs) -> anyhow::Result<()> {
     // When running inside a Kaku pane with no extra args, trigger the Cmd+L
@@ -54,8 +71,12 @@ pub fn run(args: CliArgs) -> anyhow::Result<()> {
 
     // Load assistant config.
     let cfg = crate::ai_client::AssistantConfig::load()?;
+    if !cfg.auth_ready() {
+        anyhow::bail!("Run `kaku ai` to set up Kaku Assistant.");
+    }
     let model = cfg.chat_model.clone();
     let client = crate::ai_client::AiClient::new(cfg);
+    let (cwd, remote_host) = resolve_cwd_and_remote();
 
     // Handle --resume: list or switch.
     if let Some(resume_arg) = args.resume {
@@ -65,10 +86,8 @@ pub fn run(args: CliArgs) -> anyhow::Result<()> {
             return Ok(());
         }
         if let Some(id) = resume_arg {
-            let cwd = std::env::current_dir()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let mut engine = Engine::with_conv_id(cwd.clone(), client, model, &id)?;
+            let mut engine = Engine::with_conv_id(cwd.clone(), client, model, &id)?
+                .with_remote_host(remote_host);
             let _ = ai_conversations::write_cwd_index(&cwd, &id);
             let result = run_repl(&mut engine);
             crate::ai_tools::cleanup_spill_files();
@@ -79,10 +98,6 @@ pub fn run(args: CliArgs) -> anyhow::Result<()> {
         }
     }
 
-    let cwd = std::env::current_dir()
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default();
-
     // Resolve or create a conversation for this cwd.
     let conv_id = if args.new {
         ai_conversations::start_new_active()?
@@ -90,7 +105,8 @@ pub fn run(args: CliArgs) -> anyhow::Result<()> {
         ai_conversations::resolve_or_create_conv_for_cwd(&cwd)?
     };
 
-    let mut engine = Engine::with_conv_id(cwd.clone(), client, model, &conv_id)?;
+    let mut engine =
+        Engine::with_conv_id(cwd.clone(), client, model, &conv_id)?.with_remote_host(remote_host);
     // Keep the cwd index up to date in case this is a newly created conv.
     let _ = ai_conversations::write_cwd_index(&cwd, &engine.active_id);
 

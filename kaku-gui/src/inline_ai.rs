@@ -138,10 +138,6 @@ fn parse_request(raw: &str) -> Result<(Vec<ApiMessage>, std::time::Duration)> {
     Ok((messages, std::time::Duration::from_secs(timeout_secs)))
 }
 
-fn auth_is_configured(auth_type: &str, api_key: &str) -> bool {
-    matches!(auth_type, "codex" | "copilot") || !api_key.trim().is_empty()
-}
-
 fn read_request(paths: &JobPaths) -> Result<String> {
     let file = std::fs::File::open(&paths.request)
         .with_context(|| format!("open {}", paths.request.display()))?;
@@ -206,7 +202,7 @@ fn process_job(jobs_dir: &Path, job_id: &str) -> Result<()> {
     process_job_with(jobs_dir, job_id, |messages, timeout| {
         let config = AssistantConfig::load()
             .map_err(|_| classify_config_load_error(AssistantConfig::file_exists()))?;
-        if !auth_is_configured(&config.auth_type, &config.api_key) {
+        if !config.auth_ready() {
             return Err(CompletionError::NotConfigured);
         }
 
@@ -241,11 +237,11 @@ mod tests {
 
     #[test]
     fn auth_accepts_codex_without_api_key() {
-        assert!(auth_is_configured("codex", ""));
-        assert!(auth_is_configured("copilot", ""));
-        assert!(auth_is_configured("api_key", "token"));
-        assert!(!auth_is_configured("api_key", ""));
-        assert!(!auth_is_configured("custom", ""));
+        assert!(AssistantConfig::auth_is_ready("codex", ""));
+        assert!(AssistantConfig::auth_is_ready("copilot", ""));
+        assert!(AssistantConfig::auth_is_ready("api_key", "token"));
+        assert!(!AssistantConfig::auth_is_ready("api_key", ""));
+        assert!(!AssistantConfig::auth_is_ready("custom", ""));
     }
 
     #[test]

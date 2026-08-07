@@ -92,6 +92,7 @@ mod ai_auth;
 mod ai_chat_engine;
 mod ai_client;
 mod ai_conversations;
+mod ai_cwd;
 #[cfg(feature = "remote")]
 mod ai_remote;
 mod ai_state;

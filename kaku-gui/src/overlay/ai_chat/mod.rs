@@ -92,7 +92,20 @@ pub fn ai_chat_overlay(
     let rows = size.rows;
 
     let client_cfg = match AssistantConfig::load() {
-        Ok(c) => c,
+        Ok(c) if c.auth_ready() => c,
+        Ok(_) => {
+            // Same readiness gate as `#` / `k`: guide setup instead of failing at HTTP.
+            term.render(&[
+                Change::CursorPosition {
+                    x: Position::Absolute(0),
+                    y: Position::Absolute(0),
+                },
+                Change::Text("Kaku AI: Run `kaku ai` to set up Kaku Assistant.".to_string()),
+            ])?;
+            term.flush()?;
+            std::thread::sleep(Duration::from_secs(3));
+            return Ok(());
+        }
         Err(e) => {
             // Show error briefly and exit
             term.render(&[
@@ -102,6 +115,7 @@ pub fn ai_chat_overlay(
                 },
                 Change::Text(format!("Kaku AI: {}", e)),
             ])?;
+            term.flush()?;
             std::thread::sleep(Duration::from_secs(3));
             return Ok(());
         }
